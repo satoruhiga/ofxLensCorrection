@@ -332,6 +332,8 @@ public:
 		shader.setUniform1fv("camera_matrix", camera_matrix, 9);
 		shader.setUniform1fv("dist_coeffs", dist_coeffs, 8);
 		shader.end();
+		
+		updateMesh();
 	}
 	
 	void begin()
@@ -344,6 +346,23 @@ public:
 		shader.end();
 	}
 	
+	void draw(ofTexture& tex, float x, float y, float w = 0, float h = 0)
+	{
+		tex.bind();
+		draw(x, y, w, h);
+		tex.unbind();
+	}
+	
+	void draw(float x, float y, float w = 0, float h = 0)
+	{
+		ofPushMatrix();
+		ofTranslate(x, y);
+		if (w > 0 && h > 0) ofScale(w / width, h / height);
+		mesh.draw();
+		ofPopMatrix();
+	}
+
+	
 protected:
 	
 	int width, height;
@@ -351,6 +370,89 @@ protected:
 	float dist_coeffs[8];
 	
 	ofShader shader;
+	ofVboMesh mesh;
+	
+	void updateMesh(float division_pixel = 5)
+	{
+		mesh.setUsage(GL_STATIC_DRAW);
+		
+		float w = (float)width / division_pixel;
+		float h = (float)height / division_pixel;
+		
+		for (int y = 0; y < h; y++)
+		{
+			float yy = ofMap(y, 0, h - 1, 0, height);
+			
+			for (int x = 0; x < w; x++)
+			{
+				float xx = ofMap(x, 0, w - 1, 0, width);
+				
+				ofVec2f TC = ofVec2f(xx, yy);
+				TC.y = height - TC.y;
+				mesh.addTexCoord(getUndistortedUV(TC));
+				mesh.addVertex(ofVec2f(xx, yy));
+			}
+		}
+		
+		for (int y = 0; y < h - 1; y++)
+		{
+			for (int x = 0; x < w - 1; x++)
+			{
+				int idx0 = y * w + x;
+				int idx1 = y * w + x + 1;
+				int idx2 = y * w + x + w;
+				int idx3 = y * w + x + w + 1;
+				
+				mesh.addTriangle(idx0, idx1, idx2);
+				mesh.addTriangle(idx1, idx3, idx2);
+			}
+		}
+		
+		mesh.enableIndices();
+		mesh.enableTextures();
+		mesh.disableColors();
+		mesh.disableNormals();
+	}
+	
+	ofVec2f getUndistortedUV(const ofVec2f& in_uv)
+	{
+		float k1 = dist_coeffs[0];
+		float k2 = dist_coeffs[1];
+		float p1 = dist_coeffs[2];
+		float p2 = dist_coeffs[3];
+		float k3 = dist_coeffs[4];
+		float k4 = dist_coeffs[5];
+		float k5 = dist_coeffs[6];
+		float k6 = dist_coeffs[7];
+		
+		float cx = camera_matrix[2];
+		float cy = camera_matrix[5];
+		float fx = camera_matrix[0];
+		float fy = camera_matrix[4];
+		
+		float x = (in_uv.x - cx) / fx;
+		float y = (in_uv.y - cy) / fy;
+		float xy = x * y;
+		float x2 = x * x;
+		float y2 = y * y;
+		float r2 = x2 + y2;
+		float r4 = r2 * r2;
+		float r6 = r2 * r2 * r2;
+		float _2xy = 2.0 * xy;
+		
+		float k_radial = (1.0 + k1*r2 + k2*r4 + k3*r6) / (1.0 + k4*r2 + k5*r4 + k6*r6);
+		
+		float x_d = x * k_radial + (_2xy * p1 + p2 * (r2 + 2.0 * x2));
+		float y_d = y * k_radial + (_2xy * p2 + p1 * (r2 + 2.0 * y2));
+		
+		float u = fx * x_d + cx;
+		float v = fy * y_d + cy;
+		
+		float u_dist = u - in_uv.x;
+		float v_dist = v - in_uv.y;
+		
+		return in_uv + ofVec2f(u_dist, v_dist);
+	}
 };
 
 class Parameter
